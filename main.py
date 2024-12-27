@@ -15,16 +15,17 @@ clock = pygame.time.Clock()
 # Colors
 WHITE = (255, 255, 255)
 BLACK = (0, 0, 0)
-GREY = (140, 140, 140)
-RED = (255, 0, 0)
-GREEN = (0, 255, 0)
+DARK_GREY = (100, 100, 100)
+DARK_RED = (139, 0, 0)
+DARK_GREEN = (0, 100, 0)
+DARK_BLUE = (0, 0, 139)
 
 # Adjust Game Settings
-TILE_SIZE = 20  # Reduced block size for finer grid
+TILE_SIZE = 40  # Increased block size for coarser grid
 ROWS, COLS = SCREEN_HEIGHT // TILE_SIZE, SCREEN_WIDTH // TILE_SIZE
 exit_tile = (COLS - 2, ROWS - 2)  
-PLAYER_SPEED = 0.25  # Further slowed down player speed
-GUARD_SPEED = 0.05  # Further slowed down guard speed
+PLAYER_SPEED = 0.25  # Slowed down player speed
+GUARD_SPEED = 0.05  # Slowed down guard speed
 FPS = 30  # Reduced frame rate
 
 # Load Assets
@@ -37,6 +38,12 @@ floor_img = pygame.transform.scale(floor_img, (TILE_SIZE, TILE_SIZE))
 wall_img = pygame.image.load("assets/images/wall.png")
 wall_img = pygame.transform.scale(wall_img, (TILE_SIZE, TILE_SIZE))
 
+# Fonts
+gameboy_font_path = "assets/fonts/Early GameBoy.ttf"
+title_font = pygame.font.Font(gameboy_font_path, 50)
+tagline_font = pygame.font.Font(gameboy_font_path, 25)
+button_font = pygame.font.Font(gameboy_font_path, 15)
+
 # Player Position and Facing Direction
 player_x, player_y = TILE_SIZE, TILE_SIZE
 player_img = player_img_original
@@ -48,13 +55,11 @@ guards = []
 obstacles = []
 # exit_tile = (COLS - 2, ROWS - 2)
 
-
 # Function to Draw the Floor
 def draw_floor():
     for x in range(0, SCREEN_WIDTH, TILE_SIZE):
         for y in range(0, SCREEN_HEIGHT, TILE_SIZE):
             screen.blit(floor_img, (x, y))
-
 
 # Enhanced Maze Generation
 def generate_maze():
@@ -80,7 +85,7 @@ def generate_maze():
 
     # Add extra connections for multiple paths
     def add_connections():
-        for _ in range((ROWS * COLS) // 8):  # Add ~12.5% extra connections
+        for _ in range((ROWS * COLS) // 16):  # Add ~6.25% extra connections
             x, y = random.randint(1, COLS - 2), random.randint(1, ROWS - 2)
             if maze[y][x] == 1:  # If it's a wall
                 neighbors = [
@@ -92,16 +97,9 @@ def generate_maze():
 
     add_connections()
 
-    # Add Checkpoints for Longer Gameplay
-    for _ in range(3):  # Place 3 checkpoints
-        x, y = random.randint(1, COLS - 2), random.randint(1, ROWS - 2)
-        if maze[y][x] == 0:
-            maze[y][x] = 2  # Mark checkpoint with a 2
-
     # Ensure the bottom row is filled with walls
     for x in range(COLS):
         maze[ROWS - 1][x] = 1
-
 
 # Function to Place Guards and Obstacles
 def place_entities():
@@ -112,7 +110,7 @@ def place_entities():
     empty_cells = [(x, y) for y in range(ROWS) for x in range(COLS) if maze[y][x] == 0]
 
     # Divide the map into regions and place guards in each region
-    region_size = (ROWS * COLS) // 20
+    region_size = (ROWS * COLS) // 15
     regions = [empty_cells[i:i + region_size] for i in range(0, len(empty_cells), region_size)]
 
     for region in regions:
@@ -122,7 +120,7 @@ def place_entities():
             current_x, current_y = x, y
 
             # Generate patrol route with valid moves
-            for _ in range(15):  # Increase patrol steps to 10
+            for _ in range(5):  # Adjust patrol steps
                 neighbors = [
                     (current_x + dx, current_y + dy)
                     for dx, dy in [(-1, 0), (1, 0), (0, -1), (0, 1)]
@@ -136,11 +134,10 @@ def place_entities():
                 guards.append({"pos": (x, y), "route": route, "route_index": 0, "direction": 1, "progress": 0})
             empty_cells.remove((x, y))
 
-    for _ in range(5):  # Place 5 obstacles
+    for _ in range(2):  # Place 3 obstacles
         x, y = random.choice(empty_cells)
         obstacles.append((x, y))
         empty_cells.remove((x, y))
-
 
 def draw_maze():
     for y in range(ROWS):
@@ -148,23 +145,22 @@ def draw_maze():
             if maze[y][x] == 1:  # Wall
                 screen.blit(wall_img, (x * TILE_SIZE, y * TILE_SIZE))
             elif maze[y][x] == 2:  # Checkpoint
-                pygame.draw.rect(screen, GREEN, (x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE))
+                pygame.draw.rect(screen, DARK_GREEN, (x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE))
 
     for guard in guards:
         gx, gy = guard["pos"]
-        pygame.draw.rect(screen, RED, (gx * TILE_SIZE, gy * TILE_SIZE, TILE_SIZE, TILE_SIZE))
+        pygame.draw.rect(screen, DARK_RED, (gx * TILE_SIZE, gy * TILE_SIZE, TILE_SIZE, TILE_SIZE))
 
     for ox, oy in obstacles:
         pygame.draw.rect(screen, BLACK, (ox * TILE_SIZE, oy * TILE_SIZE, TILE_SIZE, TILE_SIZE))
 
     # Draw the Exit Tile
     ex, ey = exit_tile
-    pygame.draw.rect(screen, (0, 128, 255), (ex * TILE_SIZE, ey * TILE_SIZE, TILE_SIZE, TILE_SIZE))  # Blue Exit
+    pygame.draw.rect(screen, DARK_BLUE, (ex * TILE_SIZE, ey * TILE_SIZE, TILE_SIZE, TILE_SIZE))  # Blue Exit
 
 # Collision Checking
 def is_collision(x, y):
     return maze[y][x] == 1
-
 
 def update_guards():
     for guard in guards:
@@ -189,10 +185,88 @@ def update_guards():
             guard["route_index"] = (guard["route_index"] + guard["direction"]) % len(guard["route"])
             guard["progress"] = 0
 
+# Function to Draw the Menu
+def draw_menu(dropdown_open):
+    draw_floor()
+    player_menu = pygame.image.load('assets/images/menu_player.png')
+    screen.blit(player_menu, (SCREEN_WIDTH // 2 - player_menu.get_width() // 2, SCREEN_HEIGHT // 2 - player_menu.get_height() // 2 + 40))
+
+    title_text = title_font.render("Mission 804", True, WHITE)
+    tagline_text = tagline_font.render("Tabdeeli aa Nhi Rahi,", True, WHITE)
+    tagline_text2 = tagline_font.render("Tabdeeli aa Gayi Hai", True, WHITE)
+    start_text = button_font.render("Start", True, WHITE)
+    difficulty_text = button_font.render("Difficulty", True, WHITE)
+    quit_text = button_font.render("Quit", True, WHITE)
+
+    screen.blit(title_text, (SCREEN_WIDTH // 2 - title_text.get_width() // 2, SCREEN_HEIGHT // 2 - 300))
+    screen.blit(tagline_text, (SCREEN_WIDTH // 2 - tagline_text.get_width() // 2, SCREEN_HEIGHT // 2 - 200))
+    screen.blit(tagline_text2, (SCREEN_WIDTH // 2 - tagline_text2.get_width() // 2, SCREEN_HEIGHT // 2 - 150))
+
+    pygame.draw.rect(screen, DARK_GREEN, (SCREEN_WIDTH // 2 - 350, SCREEN_HEIGHT // 2 + 180, 200, 50))
+    pygame.draw.rect(screen, DARK_GREY, (SCREEN_WIDTH // 2 - 100, SCREEN_HEIGHT // 2 + 180, 200, 50))
+    pygame.draw.rect(screen, DARK_RED, (SCREEN_WIDTH // 2 + 150, SCREEN_HEIGHT // 2 + 180, 200, 50))
+
+    screen.blit(start_text, (SCREEN_WIDTH // 2 - 300 + 50 - start_text.get_width() // 2, SCREEN_HEIGHT // 2 + 190))
+    screen.blit(difficulty_text, (SCREEN_WIDTH // 2 - 100 + 100 - difficulty_text.get_width() // 2, SCREEN_HEIGHT // 2 + 190))
+    screen.blit(quit_text, (SCREEN_WIDTH // 2 + 100 + 150 - quit_text.get_width() // 2, SCREEN_HEIGHT // 2 + 190))
+
+    if dropdown_open:
+        easy_text = button_font.render("Easy", True, WHITE)
+        medium_text = button_font.render("Medium", True, WHITE)
+        hard_text = button_font.render("Hard", True, WHITE)
+
+        pygame.draw.rect(screen, DARK_GREY, (SCREEN_WIDTH // 2 - 100, SCREEN_HEIGHT // 2 + 200, 200, 50))
+        pygame.draw.rect(screen, DARK_GREY, (SCREEN_WIDTH // 2 - 100, SCREEN_HEIGHT // 2 + 250, 200, 50))
+        pygame.draw.rect(screen, DARK_GREY, (SCREEN_WIDTH // 2 - 100, SCREEN_HEIGHT // 2 + 300, 200, 50))
+
+        screen.blit(easy_text, (SCREEN_WIDTH // 2 - easy_text.get_width() // 2, SCREEN_HEIGHT // 2 + 210))
+        screen.blit(medium_text, (SCREEN_WIDTH // 2 - medium_text.get_width() // 2, SCREEN_HEIGHT // 2 + 260))
+        screen.blit(hard_text, (SCREEN_WIDTH // 2 - hard_text.get_width() // 2, SCREEN_HEIGHT // 2 + 310))
+
+    pygame.display.flip()
+
+# Main Menu Function
+def main_menu():
+    menu_running = True
+    dropdown_open = False
+    while menu_running:
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                pygame.quit()
+                exit()
+            elif event.type == pygame.MOUSEBUTTONDOWN:
+                mouse_x, mouse_y = pygame.mouse.get_pos()
+                if SCREEN_WIDTH // 2 - 300 <= mouse_x <= SCREEN_WIDTH // 2 - 100:
+                    if SCREEN_HEIGHT // 2 + 150 <= mouse_y <= SCREEN_HEIGHT // 2 + 200:
+                        menu_running = False  # Start the game
+                elif SCREEN_WIDTH // 2 - 100 <= mouse_x <= SCREEN_WIDTH // 2 + 100:
+                    if SCREEN_HEIGHT // 2 + 150 <= mouse_y <= SCREEN_HEIGHT // 2 + 200:
+                        dropdown_open = not dropdown_open  # Toggle dropdown
+                    elif dropdown_open:
+                        if SCREEN_HEIGHT // 2 + 200 <= mouse_y <= SCREEN_HEIGHT // 2 + 250:
+                            print("Easy difficulty selected")
+                            dropdown_open = False
+                            # Set difficulty level to easy
+                        elif SCREEN_HEIGHT // 2 + 250 <= mouse_y <= SCREEN_HEIGHT // 2 + 300:
+                            print("Medium difficulty selected")
+                            dropdown_open = False
+                            # Set difficulty level to medium
+                        elif SCREEN_HEIGHT // 2 + 300 <= mouse_y <= SCREEN_HEIGHT // 2 + 350:
+                            print("Hard difficulty selected")
+                            dropdown_open = False
+                            # Set difficulty level to hard
+                elif SCREEN_WIDTH // 2 + 100 <= mouse_x <= SCREEN_WIDTH // 2 + 300:
+                    if SCREEN_HEIGHT // 2 + 150 <= mouse_y <= SCREEN_HEIGHT // 2 + 200:
+                        pygame.quit()
+                        exit()  # Quit the game
+
+        draw_menu(dropdown_open)
 
 # Main Game Loop
 def main():
     global player_x, player_y, player_img, facing_right
+
+    main_menu()  # Show the main menu
 
     generate_maze()
     place_entities()
@@ -236,7 +310,7 @@ def main():
         update_guards()
 
         # Update screen
-        screen.fill(GREY)
+        screen.fill(DARK_GREY)
         draw_floor()
         draw_maze()
         screen.blit(player_img, (player_x, player_y))
@@ -246,7 +320,6 @@ def main():
         clock.tick(FPS)
 
     pygame.quit()
-
 
 if __name__ == "__main__":
     main()
