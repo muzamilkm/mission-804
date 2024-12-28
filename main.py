@@ -29,14 +29,42 @@ GUARD_SPEED = 0.05  # Slowed down guard speed
 FPS = 30  # Reduced frame rate
 
 # Load Assets
-player_img_original = pygame.image.load("assets/images/player.png")
-player_img_original = pygame.transform.scale(player_img_original, (TILE_SIZE, TILE_SIZE))
+player_idle = pygame.image.load("assets/images/playeridle.png")
+player_run1 = pygame.image.load("assets/images/playerrun1.png")
+player_run2 = pygame.image.load("assets/images/playerrun2.png")
+player_idle = pygame.transform.scale(player_idle, (TILE_SIZE, TILE_SIZE))
+player_run1 = pygame.transform.scale(player_run1, (TILE_SIZE, TILE_SIZE))
+player_run2 = pygame.transform.scale(player_run2, (TILE_SIZE, TILE_SIZE))
+
+guard_idle = pygame.image.load("assets/images/copidle.png")
+guard_run1 = pygame.image.load("assets/images/coprun1.png")
+guard_run2 = pygame.image.load("assets/images/coprun2.png")
+guard2_run1 = pygame.image.load("assets/images/cop2run1.png")
+guard2_run2 = pygame.image.load("assets/images/cop2run2.png")
+guard2_idle = pygame.image.load("assets/images/cop2idle.png")
+guard_idle = pygame.transform.scale(guard_idle, (TILE_SIZE, TILE_SIZE))
+guard_run1 = pygame.transform.scale(guard_run1, (TILE_SIZE, TILE_SIZE))
+guard_run2 = pygame.transform.scale(guard_run2, (TILE_SIZE, TILE_SIZE))
+guard2_run1 = pygame.transform.scale(guard2_run1, (TILE_SIZE, TILE_SIZE))
+guard2_run2 = pygame.transform.scale(guard2_run2, (TILE_SIZE, TILE_SIZE))
+guard2_idle = pygame.transform.scale(guard2_idle, (TILE_SIZE, TILE_SIZE))
 
 floor_img = pygame.image.load("assets/images/floor.jpg")
 floor_img = pygame.transform.scale(floor_img, (TILE_SIZE, TILE_SIZE))
 
-wall_img = pygame.image.load("assets/images/wall.png")
+wall_img = pygame.image.load("assets/images/wallgrey.png")
 wall_img = pygame.transform.scale(wall_img, (TILE_SIZE, TILE_SIZE))
+
+exit_img = pygame.image.load("assets/images/doorred.png")
+exit_img = pygame.transform.scale(exit_img, (TILE_SIZE, TILE_SIZE))
+
+obstacle_images = [
+    pygame.transform.scale(pygame.image.load("assets/images/pipesblue.png"), (TILE_SIZE, TILE_SIZE)),
+    pygame.transform.scale(pygame.image.load("assets/images/pipesgreen.png"), (TILE_SIZE, TILE_SIZE)),
+    pygame.transform.scale(pygame.image.load("assets/images/pipesred.png"), (TILE_SIZE, TILE_SIZE)),
+    pygame.transform.scale(pygame.image.load("assets/images/table1.png"), (TILE_SIZE, TILE_SIZE)),
+    pygame.transform.scale(pygame.image.load("assets/images/desk.png"), (TILE_SIZE, TILE_SIZE))
+]
 
 # Fonts
 gameboy_font_path = "assets/fonts/Early GameBoy.ttf"
@@ -46,14 +74,66 @@ button_font = pygame.font.Font(gameboy_font_path, 15)
 
 # Player Position and Facing Direction
 player_x, player_y = TILE_SIZE, TILE_SIZE
-player_img = player_img_original
+player_img = player_idle
 facing_right = True
+player_frame = 0
+player_frozen = False
+freeze_start_time = 0
+freeze_cooldown = 0
 
 # Maze, Guards, Obstacles, and Exit
 maze = []
 guards = []
 obstacles = []
 # exit_tile = (COLS - 2, ROWS - 2)
+
+# Difficulty Settings
+difficulty = "Medium"
+guard_counts = {"Easy": 2, "Medium": 4, "Hard": 8}
+
+from heapq import heappop, heappush
+
+def astar_pathfinding(start, end):
+    open_set = []
+    heappush(open_set, (0, start))
+    came_from = {}
+    g_score = {start: 0}
+    f_score = {start: heuristic(start, end)}
+
+    while open_set:
+        _, current = heappop(open_set)
+
+        if current == end:
+            return reconstruct_path(came_from, current)
+
+        neighbors = [
+            (current[0] + dx, current[1] + dy)
+            for dx, dy in [(-1, 0), (1, 0), (0, -1), (0, 1)]
+            if 0 <= current[0] + dx < COLS and 0 <= current[1] + dy < ROWS and maze[current[1] + dy][current[0] + dx] == 0
+        ]
+
+        for neighbor in neighbors:
+            tentative_g_score = g_score[current] + 1  # All moves cost 1
+
+            if neighbor not in g_score or tentative_g_score < g_score[neighbor]:
+                came_from[neighbor] = current
+                g_score[neighbor] = tentative_g_score
+                f_score[neighbor] = g_score[neighbor] + heuristic(neighbor, end)
+                heappush(open_set, (f_score[neighbor], neighbor))
+
+    return []  # No path found
+
+def heuristic(a, b):
+    # Manhattan distance
+    return abs(a[0] - b[0]) + abs(a[1] - b[1])
+
+def reconstruct_path(came_from, current):
+    path = [current]
+    while current in came_from:
+        current = came_from[current]
+        path.append(current)
+    return path[::-1]
+
 
 # Function to Draw the Floor
 def draw_floor():
@@ -109,13 +189,10 @@ def place_entities():
 
     empty_cells = [(x, y) for y in range(ROWS) for x in range(COLS) if maze[y][x] == 0]
 
-    # Divide the map into regions and place guards in each region
-    region_size = (ROWS * COLS) // 15
-    regions = [empty_cells[i:i + region_size] for i in range(0, len(empty_cells), region_size)]
-
-    for region in regions:
-        if region:
-            x, y = random.choice(region)
+    # Place guards based on difficulty
+    for _ in range(guard_counts[difficulty]):
+        if empty_cells:
+            x, y = random.choice(empty_cells)
             route = []
             current_x, current_y = x, y
 
@@ -134,9 +211,9 @@ def place_entities():
                 guards.append({"pos": (x, y), "route": route, "route_index": 0, "direction": 1, "progress": 0})
             empty_cells.remove((x, y))
 
-    for _ in range(2):  # Place 3 obstacles
+    for _ in range(2):  # Place 2 obstacles
         x, y = random.choice(empty_cells)
-        obstacles.append((x, y))
+        obstacles.append((x, y, random.choice(obstacle_images)))
         empty_cells.remove((x, y))
 
 def draw_maze():
@@ -144,23 +221,33 @@ def draw_maze():
         for x in range(COLS):
             if maze[y][x] == 1:  # Wall
                 screen.blit(wall_img, (x * TILE_SIZE, y * TILE_SIZE))
-            elif maze[y][x] == 2:  # Checkpoint
-                pygame.draw.rect(screen, DARK_GREEN, (x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE))
+            # Remove checkpoint drawing
+            # elif maze[y][x] == 2:  # Checkpoint
+            #     pygame.draw.rect(screen, DARK_GREEN, (x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE))
 
     for guard in guards:
         gx, gy = guard["pos"]
-        pygame.draw.rect(screen, DARK_RED, (gx * TILE_SIZE, gy * TILE_SIZE, TILE_SIZE, TILE_SIZE))
+        guard_img = guard_idle if guard["progress"] == 0 else (guard_run1 if guard["progress"] < 0.5 else guard_run2)
+        if guard.get("facing_left", False):  # Check if guard is facing left
+            guard_img = pygame.transform.flip(guard_img, True, False)
+        screen.blit(guard_img, (gx * TILE_SIZE, gy * TILE_SIZE))
 
-    for ox, oy in obstacles:
-        pygame.draw.rect(screen, BLACK, (ox * TILE_SIZE, oy * TILE_SIZE, TILE_SIZE, TILE_SIZE))
+    for ox, oy, img in obstacles:
+        screen.blit(img, (ox * TILE_SIZE, oy * TILE_SIZE))
 
     # Draw the Exit Tile
     ex, ey = exit_tile
-    pygame.draw.rect(screen, DARK_BLUE, (ex * TILE_SIZE, ey * TILE_SIZE, TILE_SIZE, TILE_SIZE))  # Blue Exit
+    screen.blit(exit_img, (ex * TILE_SIZE, ey * TILE_SIZE))  # Use panel.png for exit
 
 # Collision Checking
 def is_collision(x, y):
     return maze[y][x] == 1
+
+def is_obstacle_collision(x, y):
+    for ox, oy, _ in obstacles:
+        if int((x + TILE_SIZE // 2) // TILE_SIZE) == ox and int((y + TILE_SIZE // 2) // TILE_SIZE) == oy:
+            return True
+    return False
 
 def update_guards():
     for guard in guards:
@@ -168,22 +255,34 @@ def update_guards():
         next_index = (guard["route_index"] + guard["direction"]) % len(guard["route"])
         next_pos = guard["route"][next_index]
 
-        if not is_collision(next_pos[0], next_pos[1]):
+        # A* pathfinding to calculate path to next patrol point
+        path = astar_pathfinding(current_pos, next_pos)
+
+        if path:
             guard["progress"] += GUARD_SPEED
-            guard["progress"] = min(guard["progress"], 1)  # Clamp progress to 1
+            guard["progress"] = min(guard["progress"], 1)  # Clamp progress
+            current_step = path[0]
+            next_step = path[1] if len(path) > 1 else current_step
+
             guard["pos"] = (
-                current_pos[0] + (next_pos[0] - current_pos[0]) * guard["progress"],
-                current_pos[1] + (next_pos[1] - current_pos[1]) * guard["progress"]
+                current_step[0] + (next_step[0] - current_step[0]) * guard["progress"],
+                current_step[1] + (next_step[1] - current_step[1]) * guard["progress"]
             )
 
-            # Update index when guard reaches next position
+            # Flip sprite if direction changes (left/right only)
+            if next_step[0] < current_step[0]:  # Moving left
+                guard["facing_left"] = True
+            elif next_step[0] > current_step[0]:  # Moving right
+                guard["facing_left"] = False
+
+            # Update index when reaching the next step
             if guard["progress"] >= 1:
                 guard["route_index"] = next_index
                 guard["progress"] = 0
         else:
-            guard["direction"] *= -1  # Reverse direction if next position is blocked
-            guard["route_index"] = (guard["route_index"] + guard["direction"]) % len(guard["route"])
-            guard["progress"] = 0
+            # Reverse the route if no path found (end of patrol)
+            guard["route"].reverse()
+            guard["direction"] *= -1  # Reverse direction
 
 # Function to Draw the Menu
 def draw_menu(dropdown_open):
@@ -195,7 +294,7 @@ def draw_menu(dropdown_open):
     tagline_text = tagline_font.render("Tabdeeli aa Nhi Rahi,", True, WHITE)
     tagline_text2 = tagline_font.render("Tabdeeli aa Gayi Hai", True, WHITE)
     start_text = button_font.render("Start", True, WHITE)
-    difficulty_text = button_font.render("Difficulty", True, WHITE)
+    difficulty_text = button_font.render(f"{difficulty}", True, WHITE)
     quit_text = button_font.render("Quit", True, WHITE)
 
     screen.blit(title_text, (SCREEN_WIDTH // 2 - title_text.get_width() // 2, SCREEN_HEIGHT // 2 - 300))
@@ -227,6 +326,7 @@ def draw_menu(dropdown_open):
 
 # Main Menu Function
 def main_menu():
+    global difficulty
     menu_running = True
     dropdown_open = False
     while menu_running:
@@ -244,17 +344,14 @@ def main_menu():
                         dropdown_open = not dropdown_open  # Toggle dropdown
                     elif dropdown_open:
                         if SCREEN_HEIGHT // 2 + 200 <= mouse_y <= SCREEN_HEIGHT // 2 + 250:
-                            print("Easy difficulty selected")
+                            difficulty = "Easy"
                             dropdown_open = False
-                            # Set difficulty level to easy
                         elif SCREEN_HEIGHT // 2 + 250 <= mouse_y <= SCREEN_HEIGHT // 2 + 300:
-                            print("Medium difficulty selected")
+                            difficulty = "Medium"
                             dropdown_open = False
-                            # Set difficulty level to medium
                         elif SCREEN_HEIGHT // 2 + 300 <= mouse_y <= SCREEN_HEIGHT // 2 + 350:
-                            print("Hard difficulty selected")
+                            difficulty = "Hard"
                             dropdown_open = False
-                            # Set difficulty level to hard
                 elif SCREEN_WIDTH // 2 + 100 <= mouse_x <= SCREEN_WIDTH // 2 + 300:
                     if SCREEN_HEIGHT // 2 + 150 <= mouse_y <= SCREEN_HEIGHT // 2 + 200:
                         pygame.quit()
@@ -262,9 +359,44 @@ def main_menu():
 
         draw_menu(dropdown_open)
 
+# Function to Draw the Pause Menu
+def draw_pause_menu():
+    # Draw the pause sign (two rectangles)
+    rect_width, rect_height = 20, 60
+    rect_x = SCREEN_WIDTH // 2 - rect_width - 10
+    rect_y = SCREEN_HEIGHT // 2 - rect_height // 2 - 50
+    pygame.draw.rect(screen, WHITE, (rect_x, rect_y, rect_width, rect_height))
+    pygame.draw.rect(screen, WHITE, (rect_x + rect_width + 20, rect_y, rect_width, rect_height))
+
+    # Draw the exit button
+    exit_text = button_font.render("Exit", True, WHITE)
+    exit_button_rect = pygame.Rect(SCREEN_WIDTH - 150, SCREEN_HEIGHT - 100, 100, 50)
+    pygame.draw.rect(screen, DARK_RED, exit_button_rect)
+    screen.blit(exit_text, (exit_button_rect.x + (exit_button_rect.width - exit_text.get_width()) // 2, exit_button_rect.y + (exit_button_rect.height - exit_text.get_height()) // 2))
+
+    pygame.display.flip()
+
+def pause_menu():
+    paused = True
+    while paused:
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                pygame.quit()
+                exit()
+            elif event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_p:
+                    paused = False  # Resume the game
+            elif event.type == pygame.MOUSEBUTTONDOWN:
+                mouse_x, mouse_y = pygame.mouse.get_pos()
+                if SCREEN_WIDTH - 150 <= mouse_x <= SCREEN_WIDTH - 50 and SCREEN_HEIGHT - 100 <= mouse_y <= SCREEN_HEIGHT - 50:
+                    main_menu()  # Go back to the main menu
+                    return
+
+        draw_pause_menu()
+
 # Main Game Loop
 def main():
-    global player_x, player_y, player_img, facing_right
+    global player_x, player_y, player_img, facing_right, player_frame, player_frozen, freeze_start_time, freeze_cooldown
 
     main_menu()  # Show the main menu
 
@@ -277,29 +409,52 @@ def main():
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
+            elif event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_p:
+                    pause_menu()  # Pause the game
+
+        if not running:
+            break
 
         # Handle player movement
         keys = pygame.key.get_pressed()
         next_x, next_y = player_x, player_y
 
-        if keys[pygame.K_UP]:
-            next_y -= TILE_SIZE * PLAYER_SPEED
-        if keys[pygame.K_DOWN]:
-            next_y += TILE_SIZE * PLAYER_SPEED
-        if keys[pygame.K_LEFT]:
-            next_x -= TILE_SIZE * PLAYER_SPEED
-            if facing_right:
-                player_img = pygame.transform.flip(player_img_original, True, False)
-                facing_right = False
-        if keys[pygame.K_RIGHT]:
-            next_x += TILE_SIZE * PLAYER_SPEED
-            if not facing_right:
-                player_img = player_img_original
-                facing_right = True
+        if not player_frozen:
+            if keys[pygame.K_UP]:
+                next_y -= TILE_SIZE * PLAYER_SPEED
+            if keys[pygame.K_DOWN]:
+                next_y += TILE_SIZE * PLAYER_SPEED
+            if keys[pygame.K_LEFT]:
+                next_x -= TILE_SIZE * PLAYER_SPEED
+                if facing_right:
+                    player_img = pygame.transform.flip(player_idle, True, False)
+                    facing_right = False
+            if keys[pygame.K_RIGHT]:
+                next_x += TILE_SIZE * PLAYER_SPEED
+                if not facing_right:
+                    player_img = player_idle
+                    facing_right = True
 
-        # Check for collisions
-        if not is_collision(int(next_x // TILE_SIZE), int(next_y // TILE_SIZE)):
-            player_x, player_y = next_x, next_y
+            # Check for collisions and update position
+            if not is_collision(int(next_x // TILE_SIZE), int(next_y // TILE_SIZE)):
+                player_x, player_y = next_x, next_y
+
+            # Check for obstacle collisions
+            if is_obstacle_collision(player_x, player_y) and pygame.time.get_ticks() - freeze_cooldown >= 1000:
+                player_frozen = True
+                freeze_start_time = pygame.time.get_ticks()
+                freeze_cooldown = pygame.time.get_ticks()
+
+        # Update player animation
+        if keys[pygame.K_LEFT] or keys[pygame.K_RIGHT] or keys[pygame.K_UP] or keys[pygame.K_DOWN]:
+            player_frame = (player_frame + 1) % 20
+            if player_frame < 10:
+                player_img = player_run1 if facing_right else pygame.transform.flip(player_run1, True, False)
+            else:
+                player_img = player_run2 if facing_right else pygame.transform.flip(player_run2, True, False)
+        else:
+            player_img = player_idle if facing_right else pygame.transform.flip(player_idle, True, False)
 
         # Check for Win Condition (Exit Reached)
         if (int(player_x // TILE_SIZE), int(player_y // TILE_SIZE)) == exit_tile:
@@ -318,6 +473,10 @@ def main():
         # Refresh the display
         pygame.display.flip()
         clock.tick(FPS)
+
+        # Check if freeze time is over
+        if player_frozen and pygame.time.get_ticks() - freeze_start_time >= 3000:
+            player_frozen = False
 
     pygame.quit()
 
