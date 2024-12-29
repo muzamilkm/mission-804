@@ -1,6 +1,10 @@
 import pygame
 import random
 from config.settings import SCREEN_WIDTH, SCREEN_HEIGHT, FPS, TITLE
+from interface.menu import Menu
+from entities.obstacles import ObstacleManager
+from entities.items import ItemManager
+from entities.guard import GuardManager
 
 # Initialize Pygame
 pygame.init()
@@ -58,6 +62,14 @@ wall_img = pygame.transform.scale(wall_img, (TILE_SIZE, TILE_SIZE))
 exit_img = pygame.image.load("assets/images/doorred.png")
 exit_img = pygame.transform.scale(exit_img, (TILE_SIZE, TILE_SIZE))
 
+door_locked_img = pygame.image.load("assets/images/celldoor.png")
+door_locked_img = pygame.transform.scale(door_locked_img, (TILE_SIZE, TILE_SIZE))
+door_unlocked_img = pygame.image.load("assets/images/doorholder.png")
+door_unlocked_img = pygame.transform.scale(door_unlocked_img, (TILE_SIZE, TILE_SIZE))
+
+key_img = pygame.image.load("assets/images/keyblue.png")
+key_img = pygame.transform.scale(key_img, (TILE_SIZE, TILE_SIZE))
+
 obstacle_images = [
     pygame.transform.scale(pygame.image.load("assets/images/pipesblue.png"), (TILE_SIZE, TILE_SIZE)),
     pygame.transform.scale(pygame.image.load("assets/images/pipesgreen.png"), (TILE_SIZE, TILE_SIZE)),
@@ -81,10 +93,13 @@ player_frozen = False
 freeze_start_time = 0
 freeze_cooldown = 0
 
-# Maze, Guards, Obstacles, and Exit
+# Maze, Guards, Obstacles, Doors, Keys, and Exit
 maze = []
 guards = []
 obstacles = []
+doors = []
+keys = []
+player_keys = 0
 # exit_tile = (COLS - 2, ROWS - 2)
 
 # Difficulty Settings
@@ -93,7 +108,9 @@ guard_counts = {"Easy": 2, "Medium": 4, "Hard": 8}
 
 from heapq import heappop, heappush
 
-def astar_pathfinding(start, end):
+def astar_pathfinding(start, end, custom_maze=None):
+    """Modified A* to accept custom maze for alternative path finding"""
+    maze_to_use = custom_maze if custom_maze is not None else maze
     open_set = []
     heappush(open_set, (0, start))
     came_from = {}
@@ -109,7 +126,7 @@ def astar_pathfinding(start, end):
         neighbors = [
             (current[0] + dx, current[1] + dy)
             for dx, dy in [(-1, 0), (1, 0), (0, -1), (0, 1)]
-            if 0 <= current[0] + dx < COLS and 0 <= current[1] + dy < ROWS and maze[current[1] + dy][current[0] + dx] == 0
+            if 0 <= current[0] + dx < COLS and 0 <= current[1] + dy < ROWS and maze_to_use[current[1] + dy][current[0] + dx] == 0
         ]
 
         for neighbor in neighbors:
@@ -142,8 +159,10 @@ def draw_floor():
             screen.blit(floor_img, (x, y))
 
 # Enhanced Maze Generation
+item_manager = ItemManager(TILE_SIZE)
+
 def generate_maze():
-    global maze
+    global maze, doors, keys
     maze = [[1] * COLS for _ in range(ROWS)]
 
     # Recursive Backtracking Algorithm
@@ -181,13 +200,31 @@ def generate_maze():
     for x in range(COLS):
         maze[ROWS - 1][x] = 1
 
+    # Place doors and keys using the ItemManager instance
+    empty_cells = [(x, y) for y in range(ROWS) for x in range(COLS) 
+                  if maze[y][x] == 0]
+    
+    empty_cells = item_manager.place_doors_and_keys(
+        maze, 
+        (1, 1), 
+        exit_tile, 
+        guard_counts[difficulty], 
+        empty_cells,
+        astar_pathfinding
+    )
+    
+    # Update global doors and keys from item_manager
+    global doors, keys
+    doors = item_manager.doors
+    keys = item_manager.keys
+
 # Function to Place Guards and Obstacles
 def place_entities():
     global guards, obstacles
     guards = []
     obstacles = []
 
-    empty_cells = [(x, y) for y in range(ROWS) for x in range(COLS) if maze[y][x] == 0]
+    empty_cells = [(x, y) for y in range(ROWS) for x in range(COLS) if maze[y][x] == 0 and (x, y) not in keys and (x, y) not in [door[:2] for door in doors]]
 
     # Place guards based on difficulty
     for _ in range(guard_counts[difficulty]):
@@ -235,19 +272,52 @@ def draw_maze():
     for ox, oy, img in obstacles:
         screen.blit(img, (ox * TILE_SIZE, oy * TILE_SIZE))
 
+    for dx, dy, locked in doors:
+        door_img = door_locked_img if locked else door_unlocked_img
+        screen.blit(door_img, (dx * TILE_SIZE, dy * TILE_SIZE))
+
+    for kx, ky in keys:
+        screen.blit(key_img, (kx * TILE_SIZE, ky * TILE_SIZE))
+
     # Draw the Exit Tile
     ex, ey = exit_tile
     screen.blit(exit_img, (ex * TILE_SIZE, ey * TILE_SIZE))  # Use panel.png for exit
 
 # Collision Checking
 def is_collision(x, y):
-    return maze[y][x] == 1
+    # Only walls and locked doors block movement
+    if maze[y][x] == 1:
+        return True
+    for dx, dy, locked in doors:
+        if (x, y) == (dx, dy) and locked:  # Only locked doors block movement
+            if player_keys > 0:  # If player has keys, unlock the door
+                unlock_door(x, y)
+                return False  # Allow movement after unlocking
+            return True  # Block movement if no key
+    return False
 
 def is_obstacle_collision(x, y):
     for ox, oy, _ in obstacles:
         if int((x + TILE_SIZE // 2) // TILE_SIZE) == ox and int((y + TILE_SIZE // 2) // TILE_SIZE) == oy:
             return True
     return False
+
+def collect_key(x, y):
+    global player_keys
+    for kx, ky in keys:
+        if (x, y) == (kx, ky):
+            keys.remove((kx, ky))
+            player_keys += 1
+            break
+
+def unlock_door(x, y):
+    global player_keys
+    for i, (dx, dy, locked) in enumerate(doors):
+        if locked and (x, y) == (dx, dy) and player_keys > 0:
+            print(f"Unlocking door at ({dx}, {dy}) with key {player_keys}")
+            doors[i] = (dx, dy, False)  # Unlock the door
+            player_keys -= 1
+            break
 
 def update_guards():
     for guard in guards:
@@ -445,6 +515,12 @@ def main():
                 player_frozen = True
                 freeze_start_time = pygame.time.get_ticks()
                 freeze_cooldown = pygame.time.get_ticks()
+
+            # Collect keys
+            collect_key(int(player_x // TILE_SIZE), int(player_y // TILE_SIZE))
+
+            # Unlock doors
+            unlock_door(int(player_x // TILE_SIZE), int(player_y // TILE_SIZE))
 
         # Update player animation
         if keys[pygame.K_LEFT] or keys[pygame.K_RIGHT] or keys[pygame.K_UP] or keys[pygame.K_DOWN]:
