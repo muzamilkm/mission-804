@@ -5,6 +5,7 @@ import torch.optim as optim
 from collections import deque
 import random
 from heapq import heappop, heappush
+import time
 
 class DQN(nn.Module):
     def __init__(self, input_dim, output_dim):
@@ -12,12 +13,23 @@ class DQN(nn.Module):
         self.fc1 = nn.Linear(input_dim, 128)
         self.fc2 = nn.Linear(128, 128)
         self.fc3 = nn.Linear(128, output_dim)
+        self.computation_times = []
 
     def forward(self, x):
+        start_time = time.time()
         x = torch.relu(self.fc1(x))
         x = torch.relu(self.fc2(x))
         x = self.fc3(x)
+        end_time = time.time()
+        self.computation_times.append(end_time - start_time)
         return x
+
+    def print_efficiency_metrics(self):
+        if self.computation_times:
+            avg_time = sum(self.computation_times) / len(self.computation_times)
+            print(f"Average Computation Time per Forward Pass: {avg_time:.6f} seconds")
+        else:
+            print("No computation times recorded.")
 
 class GuardEnv:
     def __init__(self, maze_size, walls, player_pos):

@@ -30,9 +30,27 @@ class GuardManager:
         self.guard_agents = []
         maze_size = (len(maze[0]), len(maze))
         
+        # Define minimum distance from start (top-left)
+        min_distance = 6  # Minimum 6 tiles away from start
+        start_pos = (1, 1)  # Player starting position
+        
+        # Filter cells that are far enough from start
+        safe_cells = [
+            (x, y) for x, y in empty_cells 
+            if abs(x - start_pos[0]) + abs(y - start_pos[1]) >= min_distance
+        ]
+        
+        # If we don't have enough safe cells, use cells that are as far as possible
+        if len(safe_cells) < num_guards:
+            # Sort cells by distance from start
+            empty_cells.sort(
+                key=lambda pos: -(abs(pos[0] - start_pos[0]) + abs(pos[1] - start_pos[1]))
+            )
+            safe_cells = empty_cells[:num_guards]
+        
         for _ in range(num_guards):
-            if empty_cells:
-                x, y = random.choice(empty_cells)
+            if safe_cells:
+                x, y = random.choice(safe_cells)
                 guard = {
                     "pos": (x, y),
                     "facing_left": False,
@@ -41,8 +59,10 @@ class GuardManager:
                 }
                 self.guards.append(guard)
                 self.guard_agents.append(GuardAgent((x, y), maze_size))
+                safe_cells.remove((x, y))
                 empty_cells.remove((x, y))
                 print(f"Placed guard at ({x}, {y})")
+        
         return empty_cells
 
     def update(self, maze, player_pos, obstacles, doors):

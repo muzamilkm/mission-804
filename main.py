@@ -5,6 +5,9 @@ from interface.menu import Menu
 from entities.obstacles import ObstacleManager
 from entities.items import ItemManager
 from entities.guard import GuardManager
+from utils.metrics import Metrics
+from ai.agents import DQN
+from ai.reinforcement import QLearning
 
 # Initialize Pygame
 pygame.init()
@@ -33,6 +36,8 @@ GUARD_SPEED = 0.05  # Slowed down guard speed
 FPS = 30  # Reduced frame rate
 
 # Load Assets
+win_img = pygame.image.load("assets/images/win.png")
+
 player_idle = pygame.image.load("assets/images/playeridle.png")
 player_run1 = pygame.image.load("assets/images/playerrun1.png")
 player_run2 = pygame.image.load("assets/images/playerrun2.png")
@@ -348,18 +353,36 @@ def draw_menu(dropdown_open):
 
 # Main Menu Function
 def main_menu():
-    global difficulty
+    global difficulty, player_x, player_y, player_img, facing_right, player_frame, player_frozen, freeze_start_time, freeze_cooldown, player_keys
+    
+    # Load and play menu music
+    menu_music = pygame.mixer.Sound("assets/sounds/menu.mp3")
+    menu_music.play(-1)  # Loop indefinitely
+    
     menu_running = True
     dropdown_open = False
     while menu_running:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
+                menu_music.stop()
                 pygame.quit()
                 exit()
             elif event.type == pygame.MOUSEBUTTONDOWN:
                 mouse_x, mouse_y = pygame.mouse.get_pos()
                 if SCREEN_WIDTH // 2 - 300 <= mouse_x <= SCREEN_WIDTH // 2 - 100:
                     if SCREEN_HEIGHT // 2 + 150 <= mouse_y <= SCREEN_HEIGHT // 2 + 200:
+                        # Reset game state
+                        player_x, player_y = TILE_SIZE, TILE_SIZE
+                        player_img = player_idle
+                        facing_right = True
+                        player_frame = 0
+                        player_frozen = False
+                        freeze_start_time = 0
+                        freeze_cooldown = 0
+                        player_keys = 0
+                        menu_music.stop()  # Stop menu music before starting game
+                        generate_maze()
+                        place_entities()
                         menu_running = False  # Start the game
                 elif SCREEN_WIDTH // 2 - 100 <= mouse_x <= SCREEN_WIDTH // 2 + 100:
                     if SCREEN_HEIGHT // 2 + 150 <= mouse_y <= SCREEN_HEIGHT // 2 + 200:
@@ -376,6 +399,7 @@ def main_menu():
                             dropdown_open = False
                 elif SCREEN_WIDTH // 2 + 100 <= mouse_x <= SCREEN_WIDTH // 2 + 300:
                     if SCREEN_HEIGHT // 2 + 150 <= mouse_y <= SCREEN_HEIGHT // 2 + 200:
+                        menu_music.stop()
                         pygame.quit()
                         exit()  # Quit the game
 
@@ -390,11 +414,19 @@ def draw_pause_menu():
     pygame.draw.rect(screen, WHITE, (rect_x, rect_y, rect_width, rect_height))
     pygame.draw.rect(screen, WHITE, (rect_x + rect_width + 20, rect_y, rect_width, rect_height))
 
+    # Draw the restart button
+    restart_text = button_font.render("Restart", True, WHITE)
+    restart_button_rect = pygame.Rect(SCREEN_WIDTH - 150, SCREEN_HEIGHT - 160, 100, 50)
+    pygame.draw.rect(screen, DARK_GREEN, restart_button_rect)
+    screen.blit(restart_text, (restart_button_rect.x + (restart_button_rect.width - restart_text.get_width()) // 2, 
+                             restart_button_rect.y + (restart_button_rect.height - restart_text.get_height()) // 2))
+
     # Draw the exit button
     exit_text = button_font.render("Exit", True, WHITE)
     exit_button_rect = pygame.Rect(SCREEN_WIDTH - 150, SCREEN_HEIGHT - 100, 100, 50)
     pygame.draw.rect(screen, DARK_RED, exit_button_rect)
-    screen.blit(exit_text, (exit_button_rect.x + (exit_button_rect.width - exit_text.get_width()) // 2, exit_button_rect.y + (exit_button_rect.height - exit_text.get_height()) // 2))
+    screen.blit(exit_text, (exit_button_rect.x + (exit_button_rect.width - exit_text.get_width()) // 2,
+                           exit_button_rect.y + (exit_button_rect.height - exit_text.get_height()) // 2))
 
     pygame.display.flip()
 
@@ -410,39 +442,300 @@ def pause_menu():
                     paused = False  # Resume the game
             elif event.type == pygame.MOUSEBUTTONDOWN:
                 mouse_x, mouse_y = pygame.mouse.get_pos()
-                if SCREEN_WIDTH - 150 <= mouse_x <= SCREEN_WIDTH - 50 and SCREEN_HEIGHT - 100 <= mouse_y <= SCREEN_HEIGHT - 50:
-                    main_menu()  # Go back to the main menu
-                    return
+                # Check for restart button click
+                if SCREEN_WIDTH - 150 <= mouse_x <= SCREEN_WIDTH - 50 and SCREEN_HEIGHT - 160 <= mouse_y <= SCREEN_HEIGHT - 110:
+                    return "RESTART"
+                # Check for exit button click
+                elif SCREEN_WIDTH - 150 <= mouse_x <= SCREEN_WIDTH - 50 and SCREEN_HEIGHT - 100 <= mouse_y <= SCREEN_HEIGHT - 50:
+                    return "MENU"
 
         draw_pause_menu()
+    return "CONTINUE"
 
-# Main Game Loop
-def main():
-    global player_x, player_y, player_img, facing_right, player_frame, player_frozen, freeze_start_time, freeze_cooldown
+def draw_win_screen():
+    """Draw the winning screen with image, text and looping sound"""
+    global player_x, player_y, player_img, facing_right, player_frame, player_frozen, freeze_start_time, freeze_cooldown, player_keys
 
-    main_menu()  # Show the main menu
+    # Load and play win sound on loop
+    win_sound = pygame.mixer.Sound("assets/sounds/win.mp3")
+    win_sound.play(-1)  # -1 means loop indefinitely
 
+    # Load and scale win image
+    win_img = pygame.image.load("assets/images/win.png")
+    img_width = SCREEN_WIDTH // 2
+    img_height = int(img_width * win_img.get_height() / win_img.get_width())
+    win_img = pygame.transform.scale(win_img, (img_width, img_height))
+
+    # Load font and create text
+    win_font = pygame.font.Font("assets/fonts/Early GameBoy.ttf", 30)
+    win_text = win_font.render("Haqeeqi Azaadi Arhi Hai", True, WHITE)
+    menu_text = button_font.render("Back to Menu", True, WHITE)
+
+    # Create semi-transparent overlay
+    overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
+    overlay.fill(DARK_GREY)
+    overlay.set_alpha(200)  # Set transparency (0-255)
+
+    # Create menu button
+    button_width = 200
+    button_height = 50
+    button_x = (SCREEN_WIDTH - button_width) // 2
+    button_y = SCREEN_HEIGHT - 100
+
+    waiting = True
+    while waiting:
+        # Draw current game state in background
+        screen.fill(DARK_GREY)
+        draw_floor()
+        draw_maze()
+        screen.blit(player_img, (player_x, player_y))
+        guard_manager.draw(screen)
+
+        # Draw semi-transparent overlay
+        screen.blit(overlay, (0, 0))
+
+        # Draw win image centered
+        img_x = (SCREEN_WIDTH - img_width) // 2
+        img_y = (SCREEN_HEIGHT - img_height - 150) // 2
+        screen.blit(win_img, (img_x, img_y))
+
+        # Draw win text centered below image
+        text_x = (SCREEN_WIDTH - win_text.get_width()) // 2
+        text_y = img_y + img_height + 30
+        screen.blit(win_text, (text_x, text_y))
+
+        # Draw menu button
+        pygame.draw.rect(screen, DARK_RED, (button_x, button_y, button_width, button_height))
+        menu_text_x = button_x + (button_width - menu_text.get_width()) // 2
+        menu_text_y = button_y + (button_height - menu_text.get_height()) // 2
+        screen.blit(menu_text, (menu_text_x, menu_text_y))
+
+        pygame.display.flip()
+
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                win_sound.stop()
+                pygame.quit()
+                exit()
+            elif event.type == pygame.MOUSEBUTTONDOWN:
+                mouse_x, mouse_y = pygame.mouse.get_pos()
+                if (button_x <= mouse_x <= button_x + button_width and 
+                    button_y <= mouse_y <= button_y + button_height):
+                    # Reset game state
+                    player_x, player_y = TILE_SIZE, TILE_SIZE
+                    player_img = player_idle
+                    facing_right = True
+                    player_frame = 0
+                    player_frozen = False
+                    freeze_start_time = 0
+                    freeze_cooldown = 0
+                    player_keys = 0
+                    win_sound.stop()
+                    waiting = False
+                    main_menu()
+
+def draw_lose_screen():
+    """Draw the losing screen with image, text and looping sound"""
+    global player_x, player_y, player_img, facing_right, player_frame, player_frozen, freeze_start_time, freeze_cooldown, player_keys
+
+    # Load and play lose sound on loop
+    lose_sound = pygame.mixer.Sound("assets/sounds/lose.mp3")
+    lose_sound.play(-1)  # -1 means loop indefinitely
+
+    # Load and scale lose image
+    lose_img = pygame.image.load("assets/images/lose.png")
+    img_width = SCREEN_WIDTH // 2
+    img_height = int(img_width * win_img.get_height() / win_img.get_width()) + 100
+    lose_img = pygame.transform.scale(lose_img, (img_width, img_height))
+
+    # Load font and create text
+    lose_font = pygame.font.Font("assets/fonts/Early GameBoy.ttf", 30)
+    lose_text = lose_font.render("Mujh Se Jo Ho Sakta Tha,", True, WHITE)
+    lose_text2 = lose_font.render("Mein ne Kiya", True, WHITE)
+    menu_text = button_font.render("Back to Menu", True, WHITE)
+
+    # Create semi-transparent overlay
+    overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
+    overlay.fill(DARK_GREY)
+    overlay.set_alpha(200)  # Set transparency (0-255)
+
+    # Create restart button
+    button_width = 200
+    button_height = 50
+    restart_button_x = (SCREEN_WIDTH - button_width) // 2 - 120
+    restart_button_y = SCREEN_HEIGHT - 100
+
+    # Create menu button (adjusted position)
+    menu_button_x = (SCREEN_WIDTH - button_width) // 2 + 120
+    menu_button_y = SCREEN_HEIGHT - 100
+
+    waiting = True
+    while waiting:
+        # Draw current game state in background
+        screen.fill(DARK_GREY)
+        draw_floor()
+        draw_maze()
+        screen.blit(player_img, (player_x, player_y))
+        guard_manager.draw(screen)
+
+        # Draw semi-transparent overlay
+        screen.blit(overlay, (0, 0))
+
+        # Draw lose image centered
+        img_x = (SCREEN_WIDTH - img_width) // 2
+        img_y = (SCREEN_HEIGHT - img_height - 150) // 2
+        screen.blit(lose_img, (img_x, img_y))
+
+        # Draw lose text centered below image
+        text_x = (SCREEN_WIDTH - lose_text.get_width()) // 2
+        text_y = img_y + img_height + 30
+        screen.blit(lose_text, (text_x, text_y))
+        screen.blit(lose_text2, (text_x + 140, text_y + 30))
+
+        # Draw restart button
+        pygame.draw.rect(screen, DARK_GREEN, (restart_button_x, restart_button_y, button_width, button_height))
+        restart_text = button_font.render("Restart", True, WHITE)
+        restart_text_x = restart_button_x + (button_width - restart_text.get_width()) // 2
+        restart_text_y = restart_button_y + (button_height - restart_text.get_height()) // 2
+        screen.blit(restart_text, (restart_text_x, restart_text_y))
+
+        # Draw menu button
+        pygame.draw.rect(screen, DARK_RED, (menu_button_x, menu_button_y, button_width, button_height))
+        menu_text_x = menu_button_x + (button_width - menu_text.get_width()) // 2
+        menu_text_y = menu_button_y + (button_height - menu_text.get_height()) // 2
+        screen.blit(menu_text, (menu_text_x, menu_text_y))
+
+        pygame.display.flip()
+
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                lose_sound.stop()
+                pygame.quit()
+                exit()
+            elif event.type == pygame.MOUSEBUTTONDOWN:
+                mouse_x, mouse_y = pygame.mouse.get_pos()
+                if (restart_button_x <= mouse_x <= restart_button_x + button_width and 
+                    restart_button_y <= mouse_y <= restart_button_y + button_height):
+                    lose_sound.stop()
+                    return "RESTART"
+                elif (menu_button_x <= mouse_x <= menu_button_x + button_width and 
+                    menu_button_y <= mouse_y <= menu_button_y + button_height):
+                    lose_sound.stop()
+                    return "MENU"
+
+def check_guard_collision():
+    # Get player hitbox (use a slightly smaller box than the tile size)
+    player_rect = pygame.Rect(
+        player_x + 5, 
+        player_y + 5, 
+        TILE_SIZE - 10, 
+        TILE_SIZE - 10
+    )
+    
+    # Check collision with each guard
+    for guard in guard_manager.guards:
+        guard_x = guard["pos"][0] * TILE_SIZE
+        guard_y = guard["pos"][1] * TILE_SIZE
+        guard_rect = pygame.Rect(
+            guard_x + 5,
+            guard_y + 5,
+            TILE_SIZE - 10,
+            TILE_SIZE - 10
+        )
+        
+        if player_rect.colliderect(guard_rect):
+            return True
+    
+    return False
+
+def reset_game_state():
+    """Reset all game state variables"""
+    global player_x, player_y, player_img, facing_right, player_frame
+    global player_frozen, freeze_start_time, freeze_cooldown, player_keys
+    global maze, doors, keys, guards, obstacles
+    
+    # Reset player state
+    player_x, player_y = TILE_SIZE, TILE_SIZE
+    player_img = player_idle
+    facing_right = True
+    player_frame = 0
+    player_frozen = False
+    freeze_start_time = 0
+    freeze_cooldown = 0
+    player_keys = 0
+    
+    # Reset game entities
+    maze = []
+    doors = []
+    keys = []
+    guards = []
+    obstacles = []
+    
+    # Regenerate game state
     generate_maze()
     place_entities()
 
-    running = True
+# Initialize metrics
+metrics = Metrics()
 
+# Initialize DQN agent
+dqn_agent = DQN(input_dim=10, output_dim=4)  # Example dimensions
+
+# Initialize QLearning agent
+qlearning_agent = QLearning()
+
+def game_loop():
+    """Separate game loop function that can be reset and restarted"""
+    global player_x, player_y, player_img, facing_right, player_frame
+    global player_frozen, freeze_start_time, freeze_cooldown
+
+    # Initial setup
+    reset_game_state()
+    metrics.start_timer()  # Start the timer
+
+    # Start game music
+    game_music = pygame.mixer.Sound("assets/sounds/game.mp3")
+    game_music.play(-1)
+
+    running = True
     while running:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
-                running = False
+                game_music.stop()
+                return "QUIT"
             elif event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_p:
-                    pause_menu()  # Pause the game
+                    game_music.stop()
+                    result = pause_menu()
+                    if result == "MENU":
+                        return "MENU"
+                    elif result == "RESTART":
+                        reset_game_state()
+                    game_music.play(-1)
 
-        if not running:
-            break
+        # Check for guard collision
+        if check_guard_collision():
+            metrics.record_interception()  # Record interception
+            metrics.stop_timer()  # Stop the timer
+            game_music.stop()
+            result = draw_lose_screen()
+            if result == "MENU":
+                metrics.print_metrics()  # Print metrics
+                dqn_agent.print_efficiency_metrics()  # Print DQN efficiency metrics
+                qlearning_agent.print_efficiency_metrics()  # Print QLearning efficiency metrics
+                return "MENU"
+            elif result == "RESTART":
+                reset_game_state()  # Use the new reset function
+                metrics.start_timer()  # Restart the timer
+                game_music.play(-1)
+                continue
 
-        # Handle player movement
+        # Handle player movement and game logic
         keys = pygame.key.get_pressed()
         next_x, next_y = player_x, player_y
 
         if not player_frozen:
+            # Handle movement
             if keys[pygame.K_UP]:
                 next_y -= TILE_SIZE * PLAYER_SPEED
             if keys[pygame.K_DOWN]:
@@ -468,10 +761,8 @@ def main():
                 freeze_start_time = pygame.time.get_ticks()
                 freeze_cooldown = pygame.time.get_ticks()
 
-            # Collect keys
+            # Collect keys and unlock doors
             collect_key(int(player_x // TILE_SIZE), int(player_y // TILE_SIZE))
-
-            # Unlock doors
             unlock_door(int(player_x // TILE_SIZE), int(player_y // TILE_SIZE))
 
         # Update player animation
@@ -486,26 +777,53 @@ def main():
 
         # Check for Win Condition (Exit Reached)
         if (int(player_x // TILE_SIZE), int(player_y // TILE_SIZE)) == exit_tile:
+            metrics.stop_timer()  # Stop the timer
+            game_music.stop()
             print("You Escaped!")
-            running = False
+            draw_win_screen()
+            metrics.print_metrics()  # Print metrics
+            dqn_agent.print_efficiency_metrics()  # Print DQN efficiency metrics
+            qlearning_agent.print_efficiency_metrics()  # Print QLearning efficiency metrics
+            return "MENU"
 
-        # Update Guards
+        # Update everything else
         update_guards()
-
-        # Update screen
+        
+        # Draw everything
         screen.fill(DARK_GREY)
         draw_floor()
         draw_maze()
         screen.blit(player_img, (player_x, player_y))
-        guard_manager.draw(screen)  # Draw guards
+        guard_manager.draw(screen)
 
-        # Refresh the display
         pygame.display.flip()
         clock.tick(FPS)
 
         # Check if freeze time is over
         if player_frozen and pygame.time.get_ticks() - freeze_start_time >= 3000:
             player_frozen = False
+
+        # Record average distance to player
+        player_pos = (int(player_x // TILE_SIZE), int(player_y // TILE_SIZE))
+        for guard in guard_manager.guards:
+            guard_pos = guard["pos"]
+            distance = abs(guard_pos[0] - player_pos[0]) + abs(guard_pos[1] - player_pos[1])
+            metrics.record_distance(distance)
+
+    return "QUIT"
+
+def main():
+    """Main game loop that handles the high-level game flow"""
+    running = True
+    while running:
+        main_menu()  # Show the main menu
+        
+        # Start a new game
+        result = game_loop()
+        
+        if result == "QUIT":
+            running = False
+        # If result is "MENU", the loop continues and shows the menu again
 
     pygame.quit()
 
