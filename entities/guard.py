@@ -1,11 +1,14 @@
 import pygame
 import random
+import math
+from ai.agents import GuardAgent
 
 class GuardManager:
     def __init__(self, tile_size, guard_speed):
         self.tile_size = tile_size
         self.guard_speed = guard_speed
         self.guards = []
+        self.guard_agents = []
         self.load_images()
 
     def load_images(self):
@@ -24,37 +27,72 @@ class GuardManager:
 
     def place_guards(self, empty_cells, maze, num_guards):
         self.guards = []
+        self.guard_agents = []
+        maze_size = (len(maze[0]), len(maze))
+        
         for _ in range(num_guards):
             if empty_cells:
                 x, y = random.choice(empty_cells)
-                route = self.generate_patrol_route(x, y, maze)
-                if route:
-                    self.guards.append({
-                        "pos": (x, y),
-                        "route": route,
-                        "route_index": 0,
-                        "direction": 1,
-                        "progress": 0,
-                        "facing_left": False
-                    })
+                guard = {
+                    "pos": (x, y),
+                    "facing_left": False,
+                    "current_path": [],
+                    "target_pos": None
+                }
+                self.guards.append(guard)
+                self.guard_agents.append(GuardAgent((x, y), maze_size))
                 empty_cells.remove((x, y))
+                print(f"Placed guard at ({x}, {y})")
         return empty_cells
 
-    def generate_patrol_route(self, x, y, maze):
-        # ... patrol route generation code ...
-        pass
+    def update(self, maze, player_pos, obstacles, doors):
+        walls = [(x, y) for y, row in enumerate(maze) 
+                for x, cell in enumerate(row) if cell == 1]
 
-    def update(self, astar_pathfinding):
-        # ... guard update code ...
-        pass
+        for guard, agent in zip(self.guards, self.guard_agents):
+            curr_x, curr_y = guard["pos"]
+            
+            # Get path to player if needed
+            if not guard["current_path"]:
+                guard["current_path"] = agent.find_path_to_player(
+                    (int(curr_x), int(curr_y)),
+                    player_pos,
+                    walls
+                )
+
+            # Move along path
+            if guard["current_path"]:
+                next_x, next_y = guard["current_path"][0]
+                
+                # Calculate movement direction
+                dx = next_x - curr_x
+                dy = next_y - curr_y
+                
+                # Update facing direction
+                if dx != 0:
+                    guard["facing_left"] = dx < 0
+
+                # Move if not blocked by wall
+                new_x = curr_x + (self.guard_speed if dx > 0 else -self.guard_speed if dx < 0 else 0)
+                new_y = curr_y + (self.guard_speed if dy > 0 else -self.guard_speed if dy < 0 else 0)
+                
+                # Check if reached next path point
+                if abs(new_x - next_x) < self.guard_speed and abs(new_y - next_y) < self.guard_speed:
+                    guard["pos"] = (next_x, next_y)
+                    guard["current_path"].pop(0)
+                else:
+                    # Check wall collision before moving
+                    new_tile_x = int(new_x)
+                    new_tile_y = int(new_y)
+                    if (new_tile_x, new_tile_y) not in walls:
+                        guard["pos"] = (new_x, new_y)
+                    else:
+                        # Path is blocked, recalculate
+                        guard["current_path"] = []
 
     def draw(self, screen):
         for guard in self.guards:
-            gx, gy = guard["pos"]
-            guard_img = self.guard_idle if guard["progress"] == 0 else \
-                       (self.guard_run1 if guard["progress"] < 0.5 else self.guard_run2)
-            
-            if guard.get("facing_left", False):
-                guard_img = pygame.transform.flip(guard_img, True, False)
-            
-            screen.blit(guard_img, (gx * self.tile_size, gy * self.tile_size))
+            x, y = guard["pos"]
+            guard_img = self.guard_idle if guard["facing_left"] else \
+                       pygame.transform.flip(self.guard_idle, True, False)
+            screen.blit(guard_img, (int(x * self.tile_size), int(y * self.tile_size)))

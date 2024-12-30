@@ -83,6 +83,11 @@ gameboy_font_path = "assets/fonts/Early GameBoy.ttf"
 title_font = pygame.font.Font(gameboy_font_path, 50)
 tagline_font = pygame.font.Font(gameboy_font_path, 25)
 button_font = pygame.font.Font(gameboy_font_path, 15)
+fonts = {
+    "title": title_font,
+    "tagline": tagline_font,
+    "button": button_font
+}
 
 # Player Position and Facing Direction
 player_x, player_y = TILE_SIZE, TILE_SIZE
@@ -161,6 +166,12 @@ def draw_floor():
 # Enhanced Maze Generation
 item_manager = ItemManager(TILE_SIZE)
 
+# Initialize managers
+obstacle_manager = ObstacleManager(TILE_SIZE)
+item_manager = ItemManager(TILE_SIZE)
+guard_manager = GuardManager(TILE_SIZE, GUARD_SPEED)
+menu = Menu(screen, fonts, floor_img)
+
 def generate_maze():
     global maze, doors, keys
     maze = [[1] * COLS for _ in range(ROWS)]
@@ -227,31 +238,10 @@ def place_entities():
     empty_cells = [(x, y) for y in range(ROWS) for x in range(COLS) if maze[y][x] == 0 and (x, y) not in keys and (x, y) not in [door[:2] for door in doors]]
 
     # Place guards based on difficulty
-    for _ in range(guard_counts[difficulty]):
-        if empty_cells:
-            x, y = random.choice(empty_cells)
-            route = []
-            current_x, current_y = x, y
+    empty_cells = guard_manager.place_guards(empty_cells, maze, guard_counts[difficulty])
 
-            # Generate patrol route with valid moves
-            for _ in range(5):  # Adjust patrol steps
-                neighbors = [
-                    (current_x + dx, current_y + dy)
-                    for dx, dy in [(-1, 0), (1, 0), (0, -1), (0, 1)]
-                    if 0 <= current_x + dx < COLS and 0 <= current_y + dy < ROWS and maze[current_y + dy][current_x + dx] == 0
-                ]
-                if neighbors:
-                    next_pos = random.choice(neighbors)
-                    route.append(next_pos)
-                    current_x, current_y = next_pos
-            if route:
-                guards.append({"pos": (x, y), "route": route, "route_index": 0, "direction": 1, "progress": 0})
-            empty_cells.remove((x, y))
-
-    for _ in range(2):  # Place 2 obstacles
-        x, y = random.choice(empty_cells)
-        obstacles.append((x, y, random.choice(obstacle_images)))
-        empty_cells.remove((x, y))
+    # Place obstacles
+    empty_cells = obstacle_manager.place_obstacles(empty_cells)
 
 def draw_maze():
     for y in range(ROWS):
@@ -261,13 +251,6 @@ def draw_maze():
             # Remove checkpoint drawing
             # elif maze[y][x] == 2:  # Checkpoint
             #     pygame.draw.rect(screen, DARK_GREEN, (x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE))
-
-    for guard in guards:
-        gx, gy = guard["pos"]
-        guard_img = guard_idle if guard["progress"] == 0 else (guard_run1 if guard["progress"] < 0.5 else guard_run2)
-        if guard.get("facing_left", False):  # Check if guard is facing left
-            guard_img = pygame.transform.flip(guard_img, True, False)
-        screen.blit(guard_img, (gx * TILE_SIZE, gy * TILE_SIZE))
 
     for ox, oy, img in obstacles:
         screen.blit(img, (ox * TILE_SIZE, oy * TILE_SIZE))
@@ -320,39 +303,8 @@ def unlock_door(x, y):
             break
 
 def update_guards():
-    for guard in guards:
-        current_pos = guard["route"][guard["route_index"]]
-        next_index = (guard["route_index"] + guard["direction"]) % len(guard["route"])
-        next_pos = guard["route"][next_index]
-
-        # A* pathfinding to calculate path to next patrol point
-        path = astar_pathfinding(current_pos, next_pos)
-
-        if path:
-            guard["progress"] += GUARD_SPEED
-            guard["progress"] = min(guard["progress"], 1)  # Clamp progress
-            current_step = path[0]
-            next_step = path[1] if len(path) > 1 else current_step
-
-            guard["pos"] = (
-                current_step[0] + (next_step[0] - current_step[0]) * guard["progress"],
-                current_step[1] + (next_step[1] - current_step[1]) * guard["progress"]
-            )
-
-            # Flip sprite if direction changes (left/right only)
-            if next_step[0] < current_step[0]:  # Moving left
-                guard["facing_left"] = True
-            elif next_step[0] > current_step[0]:  # Moving right
-                guard["facing_left"] = False
-
-            # Update index when reaching the next step
-            if guard["progress"] >= 1:
-                guard["route_index"] = next_index
-                guard["progress"] = 0
-        else:
-            # Reverse the route if no path found (end of patrol)
-            guard["route"].reverse()
-            guard["direction"] *= -1  # Reverse direction
+    player_pos = (int(player_x // TILE_SIZE), int(player_y // TILE_SIZE))
+    guard_manager.update(maze, player_pos, obstacles, doors)
 
 # Function to Draw the Menu
 def draw_menu(dropdown_open):
@@ -545,6 +497,7 @@ def main():
         draw_floor()
         draw_maze()
         screen.blit(player_img, (player_x, player_y))
+        guard_manager.draw(screen)  # Draw guards
 
         # Refresh the display
         pygame.display.flip()
