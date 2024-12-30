@@ -31,7 +31,7 @@ class GuardManager:
         maze_size = (len(maze[0]), len(maze))
         
         # Define minimum distance from start (top-left)
-        min_distance = 6  # Minimum 6 tiles away from start
+        min_distance = 10  # Minimum 10 tiles away from start
         start_pos = (1, 1)  # Player starting position
         
         # Filter cells that are far enough from start

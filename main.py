@@ -468,7 +468,7 @@ def draw_win_screen():
 
     # Load font and create text
     win_font = pygame.font.Font("assets/fonts/Early GameBoy.ttf", 30)
-    win_text = win_font.render("Haqeeqi Azaadi Arhi Hai", True, WHITE)
+    win_text = win_font.render("Haqeeqi Azaadi Achieved", True, WHITE)
     menu_text = button_font.render("Back to Menu", True, WHITE)
 
     # Create semi-transparent overlay
