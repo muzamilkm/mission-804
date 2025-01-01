@@ -237,16 +237,33 @@ def generate_maze():
 # Function to Place Guards and Obstacles
 def place_entities():
     global guards, obstacles
-    guards = []
-    obstacles = []
+    
+    # Get all empty cells that aren't used by keys or doors
+    empty_cells = [(x, y) for y in range(ROWS) for x in range(COLS) 
+                  if maze[y][x] == 0 and 
+                  (x, y) not in keys and 
+                  (x, y) not in [door[:2] for door in doors] and
+                  (x, y) != (1, 1) and  # Avoid player starting position
+                  (x, y) != exit_tile]   # Avoid exit tile
 
-    empty_cells = [(x, y) for y in range(ROWS) for x in range(COLS) if maze[y][x] == 0 and (x, y) not in keys and (x, y) not in [door[:2] for door in doors]]
-
-    # Place guards based on difficulty
+    # Place guards first
     empty_cells = guard_manager.place_guards(empty_cells, maze, guard_counts[difficulty])
 
-    # Place obstacles
-    empty_cells = obstacle_manager.place_obstacles(empty_cells)
+    # Set obstacle count to a maximum of 4
+    min_obstacles = 2
+    max_obstacles = 4
+
+    # Then place obstacles with fixed counts
+    empty_cells = obstacle_manager.place_obstacles(
+        empty_cells,
+        min_count=min_obstacles,
+        max_count=max_obstacles
+    )
+    
+    # Update global obstacles list from obstacle manager
+    obstacles = obstacle_manager.obstacles
+
+    return empty_cells
 
 def draw_maze():
     for y in range(ROWS):
@@ -271,6 +288,9 @@ def draw_maze():
     ex, ey = exit_tile
     screen.blit(exit_img, (ex * TILE_SIZE, ey * TILE_SIZE))  # Use panel.png for exit
 
+    # Draw obstacles
+    obstacle_manager.draw(screen)
+
 # Collision Checking
 def is_collision(x, y):
     # Only walls and locked doors block movement
@@ -285,10 +305,7 @@ def is_collision(x, y):
     return False
 
 def is_obstacle_collision(x, y):
-    for ox, oy, _ in obstacles:
-        if int((x + TILE_SIZE // 2) // TILE_SIZE) == ox and int((y + TILE_SIZE // 2) // TILE_SIZE) == oy:
-            return True
-    return False
+    return obstacle_manager.is_collision(x, y)
 
 def collect_key(x, y):
     global player_keys
@@ -312,7 +329,7 @@ def update_guards():
     guard_manager.update(maze, player_pos, obstacles, doors)
 
 # Function to Draw the Menu
-def draw_menu(dropdown_open):
+def draw_menu(dropdown_open, selected_button, selected_dropdown=-1):
     draw_floor()
     player_menu = pygame.image.load('assets/images/menu_player.png')
     screen.blit(player_menu, (SCREEN_WIDTH // 2 - player_menu.get_width() // 2, SCREEN_HEIGHT // 2 - player_menu.get_height() // 2 + 40))
@@ -328,30 +345,31 @@ def draw_menu(dropdown_open):
     screen.blit(tagline_text, (SCREEN_WIDTH // 2 - tagline_text.get_width() // 2, SCREEN_HEIGHT // 2 - 200))
     screen.blit(tagline_text2, (SCREEN_WIDTH // 2 - tagline_text2.get_width() // 2, SCREEN_HEIGHT // 2 - 150))
 
-    pygame.draw.rect(screen, DARK_GREEN, (SCREEN_WIDTH // 2 - 350, SCREEN_HEIGHT // 2 + 180, 200, 50))
-    pygame.draw.rect(screen, DARK_GREY, (SCREEN_WIDTH // 2 - 100, SCREEN_HEIGHT // 2 + 180, 200, 50))
-    pygame.draw.rect(screen, DARK_RED, (SCREEN_WIDTH // 2 + 150, SCREEN_HEIGHT // 2 + 180, 200, 50))
+    buttons = [
+        (SCREEN_WIDTH // 2 - 350, SCREEN_HEIGHT // 2 + 180, 200, 50, start_text),
+        (SCREEN_WIDTH // 2 - 100, SCREEN_HEIGHT // 2 + 180, 200, 50, difficulty_text),
+        (SCREEN_WIDTH // 2 + 150, SCREEN_HEIGHT // 2 + 180, 200, 50, quit_text)
+    ]
 
-    screen.blit(start_text, (SCREEN_WIDTH // 2 - 300 + 50 - start_text.get_width() // 2, SCREEN_HEIGHT // 2 + 190))
-    screen.blit(difficulty_text, (SCREEN_WIDTH // 2 - 100 + 100 - difficulty_text.get_width() // 2, SCREEN_HEIGHT // 2 + 190))
-    screen.blit(quit_text, (SCREEN_WIDTH // 2 + 100 + 150 - quit_text.get_width() // 2, SCREEN_HEIGHT // 2 + 190))
+    for i, (x, y, w, h, text) in enumerate(buttons):
+        color = DARK_GREEN if i == 0 else DARK_GREY if i == 1 else DARK_RED
+        pygame.draw.rect(screen, color, (x, y, w, h))
+        if i == selected_button:
+            pygame.draw.rect(screen, WHITE, (x, y, w, h), 3)  # White outline for selected button
+        screen.blit(text, (x + (w - text.get_width()) // 2, y + (h - text.get_height()) // 2))
 
     if dropdown_open:
-        easy_text = button_font.render("Easy", True, WHITE)
-        medium_text = button_font.render("Medium", True, WHITE)
-        hard_text = button_font.render("Hard", True, WHITE)
-
-        pygame.draw.rect(screen, DARK_GREY, (SCREEN_WIDTH // 2 - 100, SCREEN_HEIGHT // 2 + 200, 200, 50))
-        pygame.draw.rect(screen, DARK_GREY, (SCREEN_WIDTH // 2 - 100, SCREEN_HEIGHT // 2 + 250, 200, 50))
-        pygame.draw.rect(screen, DARK_GREY, (SCREEN_WIDTH // 2 - 100, SCREEN_HEIGHT // 2 + 300, 200, 50))
-
-        screen.blit(easy_text, (SCREEN_WIDTH // 2 - easy_text.get_width() // 2, SCREEN_HEIGHT // 2 + 210))
-        screen.blit(medium_text, (SCREEN_WIDTH // 2 - medium_text.get_width() // 2, SCREEN_HEIGHT // 2 + 260))
-        screen.blit(hard_text, (SCREEN_WIDTH // 2 - hard_text.get_width() // 2, SCREEN_HEIGHT // 2 + 310))
+        dropdown_items = ["Easy", "Medium", "Hard"]
+        for i, text in enumerate(dropdown_items):
+            item_y = SCREEN_HEIGHT // 2 + 200 + (i * 50)
+            pygame.draw.rect(screen, DARK_GREY, (SCREEN_WIDTH // 2 - 100, item_y, 200, 50))
+            if i == selected_dropdown:
+                pygame.draw.rect(screen, WHITE, (SCREEN_WIDTH // 2 - 100, item_y, 200, 50), 3)
+            text_surface = button_font.render(text, True, WHITE)
+            screen.blit(text_surface, (SCREEN_WIDTH // 2 - text_surface.get_width() // 2, item_y + 15))
 
     pygame.display.flip()
 
-# Main Menu Function
 def main_menu():
     global difficulty, player_x, player_y, player_img, facing_right, player_frame, player_frozen, freeze_start_time, freeze_cooldown, player_keys
     
@@ -361,12 +379,59 @@ def main_menu():
     
     menu_running = True
     dropdown_open = False
+    selected_button = 0  # Track the currently selected button
+    selected_dropdown = -1  # Track the selected dropdown item
+    
     while menu_running:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 menu_music.stop()
                 pygame.quit()
                 exit()
+            elif event.type == pygame.KEYDOWN:
+                if dropdown_open and selected_button == 1:
+                    if event.key == pygame.K_DOWN:
+                        selected_dropdown = (selected_dropdown + 1) % 3
+                    elif event.key == pygame.K_UP:
+                        selected_dropdown = (selected_dropdown - 1) % 3
+                    elif event.key == pygame.K_RETURN:
+                        difficulty = ["Easy", "Medium", "Hard"][selected_dropdown]
+                        dropdown_open = False
+                        selected_dropdown = -1
+                    elif event.key == pygame.K_ESCAPE:
+                        dropdown_open = False
+                        selected_dropdown = -1
+                else:
+                    if event.key == pygame.K_LEFT:
+                        selected_button = (selected_button - 1) % 3
+                    elif event.key == pygame.K_RIGHT:
+                        selected_button = (selected_button + 1) % 3
+                    elif event.key == pygame.K_RETURN:
+                        if selected_button == 0:  # Start
+                            # Reset game state and start game
+                            # Reset game state
+                            player_x, player_y = TILE_SIZE, TILE_SIZE
+                            player_img = player_idle
+                            facing_right = True
+                            player_frame = 0
+                            player_frozen = False
+                            freeze_start_time = 0
+                            freeze_cooldown = 0
+                            player_keys = 0
+                            menu_music.stop()  # Stop menu music before starting game
+                            generate_maze()
+                            place_entities()
+                            menu_running = False
+                        elif selected_button == 1:  # Difficulty
+                            dropdown_open = not dropdown_open
+                            selected_dropdown = 0 if dropdown_open else -1
+                        elif selected_button == 2:  # Quit
+                            menu_music.stop()
+                            pygame.quit()
+                            exit()
+
+        # Mouse handling remains the same
+        # ...existing mouse handling code...
             elif event.type == pygame.MOUSEBUTTONDOWN:
                 mouse_x, mouse_y = pygame.mouse.get_pos()
                 if SCREEN_WIDTH // 2 - 300 <= mouse_x <= SCREEN_WIDTH // 2 - 100:
@@ -403,7 +468,7 @@ def main_menu():
                         pygame.quit()
                         exit()  # Quit the game
 
-        draw_menu(dropdown_open)
+        draw_menu(dropdown_open, selected_button, selected_dropdown)
 
 # Function to Draw the Pause Menu
 def draw_pause_menu():
@@ -721,8 +786,6 @@ def game_loop():
             result = draw_lose_screen()
             if result == "MENU":
                 metrics.print_metrics()  # Print metrics
-                dqn_agent.print_efficiency_metrics()  # Print DQN efficiency metrics
-                qlearning_agent.print_efficiency_metrics()  # Print QLearning efficiency metrics
                 return "MENU"
             elif result == "RESTART":
                 reset_game_state()  # Use the new reset function
@@ -782,8 +845,6 @@ def game_loop():
             print("You Escaped!")
             draw_win_screen()
             metrics.print_metrics()  # Print metrics
-            dqn_agent.print_efficiency_metrics()  # Print DQN efficiency metrics
-            qlearning_agent.print_efficiency_metrics()  # Print QLearning efficiency metrics
             return "MENU"
 
         # Update everything else
@@ -800,7 +861,7 @@ def game_loop():
         clock.tick(FPS)
 
         # Check if freeze time is over
-        if player_frozen and pygame.time.get_ticks() - freeze_start_time >= 3000:
+        if player_frozen and pygame.time.get_ticks() - freeze_start_time >= 1000:  # Reduced freeze time to 1 second
             player_frozen = False
 
         # Record average distance to player

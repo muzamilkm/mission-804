@@ -126,7 +126,7 @@ class ItemManager:
     def place_doors_and_keys(self, maze, start, exit_tile, num_guards, empty_cells, pathfinding_func):
         """Enhanced door and key placement with improved distribution"""
         # Find player's initial region
-        player_region = self.find_player_region(maze, start)
+        player_region = self.find_player_region(maze, start, distance=10)  # Ensure safe spot around player
         
         # Find optimal paths
         optimal_paths = self.find_optimal_paths(maze, start, exit_tile, pathfinding_func)
@@ -138,6 +138,18 @@ class ItemManager:
         
         # Place keys strategically
         key_locations = self.find_key_locations(maze, player_region, door_locations, num_doors)
+        
+        # Ensure at least 2 keys are inside the safe spot
+        keys_in_safe_spot = [key for key in key_locations if key in player_region]
+        if len(keys_in_safe_spot) < 2:
+            additional_keys_needed = 2 - len(keys_in_safe_spot)
+            available_safe_spot_cells = [cell for cell in player_region if cell not in key_locations and cell not in door_locations]
+            for _ in range(additional_keys_needed):
+                if available_safe_spot_cells:
+                    new_key = random.choice(available_safe_spot_cells)
+                    key_locations.append(new_key)
+                    available_safe_spot_cells.remove(new_key)
+        
         self.keys = key_locations
         
         # Update empty cells

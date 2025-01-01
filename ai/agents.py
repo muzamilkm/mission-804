@@ -86,7 +86,7 @@ class GuardAgent:
         self.position = position
         self.maze_size = maze_size
         self.update_timer = 0
-        self.path_update_interval = 30
+        self.path_update_interval = 30  # Delay before targeting player directly
         self.personality = random.random()  # Add randomized personality trait
         self.error_rate = random.uniform(0.1, 0.3)  # Each guard has different error rate
 

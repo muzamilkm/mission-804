@@ -72,16 +72,28 @@ class GuardManager:
         for guard, agent in zip(self.guards, self.guard_agents):
             curr_x, curr_y = guard["pos"]
             
-            # Get path to player if needed
-            if not guard["current_path"]:
-                guard["current_path"] = agent.find_path_to_player(
-                    (int(curr_x), int(curr_y)),
-                    player_pos,
-                    walls
-                )
+            # Introduce a delay before guards start targeting the player directly
+            if agent.update_timer < agent.path_update_interval:
+                agent.update_timer += 1
+                if not guard["current_path"]:
+                    # Random initial target within the maze
+                    random_target = (random.randint(0, len(maze[0]) - 1), random.randint(0, len(maze) - 1))
+                    guard["current_path"] = agent.find_path_to_player(
+                        (int(curr_x), int(curr_y)),
+                        random_target,
+                        walls
+                    )
+            else:
+                # Get path to player if needed
+                if not guard["current_path"]:
+                    guard["current_path"] = agent.find_path_to_player(
+                        (int(curr_x), int(curr_y)),
+                        player_pos,
+                        walls
+                    )
 
             # Move along path
-            if guard["current_path"]:
+            if guard["current_path"] and guard["current_path"]:
                 next_x, next_y = guard["current_path"][0]
                 
                 # Calculate movement direction
